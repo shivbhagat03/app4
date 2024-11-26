@@ -1,0 +1,58 @@
+import dash
+from dash import dcc, html
+import pandas as pd
+import plotly.express as px
+from influxdb_client import InfluxDBClient
+
+# Constants
+INFLUXDB_TOKEN = "1T_6rLw7sMXiCNWK8bU6cLYNwSihdOO-dee210OYkzFD8DQaIScjUKcK0WXTrBZLNR8HkIqxZU6bzvPEwrHxPw=="
+ORG = "test"
+BUCKET = "timeseriesData"
+URL = "http://localhost:8086"
+
+client = InfluxDBClient(url=URL, token=INFLUXDB_TOKEN, org=ORG)
+query_api = client.query_api()
+
+# Dash app setup
+app = dash.Dash(__name__)
+
+app.layout = html.Div([
+    html.H1("RH_out vs Date Time-Series Visualization"),
+    dcc.Graph(id='time-series-chart'),
+])
+
+
+@app.callback(
+    dash.dependencies.Output('time-series-chart', 'figure'),
+    [dash.dependencies.Input('time-series-chart', 'id')]
+)
+def fetch_and_plot_data(_):
+    # Query InfluxDB for "RH_out" data
+    query = f'''
+    from(bucket: "{BUCKET}")
+    |> range(start: 0)
+    |> filter(fn: (r) => r["_measurement"] == "energy_data")
+    |> filter(fn: (r) => r["_field"] == "RH_out")
+    |> aggregateWindow(every: 1h, fn: mean, createEmpty: false)
+    |> yield(name: "mean")
+    '''
+    result = query_api.query(org=ORG, query=query)
+
+    # Parse data from InfluxDB response
+    times = []
+    values = []
+    for table in result:
+        for record in table.records:
+            times.append(record.get_time())
+            values.append(record.get_value())
+
+    # Create a DataFrame from the parsed data
+    data = pd.DataFrame({"Date": pd.to_datetime(times), "RH_out": values})
+
+    # Create a line plot
+    fig = px.line(data, x="Date", y="RH_out", title="RH_out vs Date", labels={"Date": "Date", "RH_out": "RH_out"})
+    return fig
+
+
+if __name__ == '__main__':
+    app.run_server(debug=True)
