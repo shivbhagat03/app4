@@ -1,3 +1,4 @@
+
 import dash
 from dash import dcc, html
 import pandas as pd
@@ -18,19 +19,32 @@ app = dash.Dash(__name__)
 
 app.layout = html.Div([
     html.H1("RH_out vs Date Time-Series Visualization"),
+    html.Div([
+        html.Label("Start Time:"),
+        dcc.Input(id='start-time', type='text', placeholder='YYYY-MM-DDT00:00:00Z'),
+        html.Label("End Time:"),
+        dcc.Input(id='end-time', type='text', placeholder='YYYY-MM-DDT00:00:00Z'),
+        html.Button('Update Graph', id='update-button', n_clicks=0),
+    ]),
     dcc.Graph(id='time-series-chart'),
 ])
 
 
 @app.callback(
     dash.dependencies.Output('time-series-chart', 'figure'),
-    [dash.dependencies.Input('time-series-chart', 'id')]
+    [dash.dependencies.Input('update-button', 'n_clicks')],
+    [dash.dependencies.State('start-time', 'value'),
+     dash.dependencies.State('end-time', 'value')]
 )
-def fetch_and_plot_data(_):
-    # Query InfluxDB for "RH_out" data
+def fetch_and_plot_data(n_clicks, start_time, end_time):
+    # Validate user inputs
+    if not start_time or not end_time:
+        return px.line(title="Please enter valid start and end times.")
+
+    # Query InfluxDB for "RH_out" data within the given time range
     query = f'''
     from(bucket: "{BUCKET}")
-    |> range(start: 0)
+    |> range(start: {start_time}, stop: {end_time})
     |> filter(fn: (r) => r["_measurement"] == "energy_data")
     |> filter(fn: (r) => r["_field"] == "RH_out")
     |> aggregateWindow(every: 1h, fn: mean, createEmpty: false)
@@ -47,6 +61,9 @@ def fetch_and_plot_data(_):
             values.append(record.get_value())
 
     # Create a DataFrame from the parsed data
+    if not times or not values:
+        return px.line(title="No data found for the specified time range.")
+
     data = pd.DataFrame({"Date": pd.to_datetime(times), "RH_out": values})
 
     # Create a line plot
